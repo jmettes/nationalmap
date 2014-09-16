@@ -23,9 +23,10 @@ var Credit = require('../../third_party/cesium/Source/Core/Credit');
 var DataSourceCollection = require('../../third_party/cesium/Source/DataSources/DataSourceCollection');
 var defaultValue = require('../../third_party/cesium/Source/Core/defaultValue');
 var defined = require('../../third_party/cesium/Source/Core/defined');
-var Entity = require('../../third_party/cesium/Source/DataSources/Entity');
 var Ellipsoid = require('../../third_party/cesium/Source/Core/Ellipsoid');
+var EllipsoidGeodesic = require('../../third_party/cesium/Source/Core/EllipsoidGeodesic');
 var EllipsoidTerrainProvider = require('../../third_party/cesium/Source/Core/EllipsoidTerrainProvider');
+var Entity = require('../../third_party/cesium/Source/DataSources/Entity');
 var FeatureDetection = require('../../third_party/cesium/Source/Core/FeatureDetection');
 var GeographicProjection = require('../../third_party/cesium/Source/Core/GeographicProjection');
 var CesiumEvent = require('../../third_party/cesium/Source/Core/Event');
@@ -76,6 +77,9 @@ BingMapsApi.defaultKey = undefined;
 var AusGlobeViewer = function(geoDataManager) {
 
     this.geoDataManager = geoDataManager;
+
+    this._distanceLegendBarWidth = undefined;
+    this._distanceLegendLabel = undefined;
 
     var that = this;
     
@@ -183,21 +187,6 @@ var AusGlobeViewer = function(geoDataManager) {
         viewer : this
     });
 
-    var legend = document.createElement('div');
-    legend.id = 'legend';
-//    div.className = 'legend';
-    legend.style.visibility = "hidden";
-    legend.innerHTML += '\
-            <table> \
-                <td><canvas id="legendCanvas" width="32" height="128"></canvas></td> \
-                <td> <table> \
-                    <tr height="64"><td id="lgd_max_val" valign="top"></td></tr> \
-                    <tr height="64"><td id="lgd_min_val" valign="bottom"></td></tr> \
-                    </table> \
-                </td> \
-            </table>';
-    document.body.appendChild(legend);
-
     var leftArea = document.createElement('div');
     leftArea.className = 'ausglobe-left-area';
     document.body.appendChild(leftArea);
@@ -205,21 +194,6 @@ var AusGlobeViewer = function(geoDataManager) {
     this.webGlSupported = true;
     
     var noWebGLMessage;
-    var browser = $.browser;
-
-        //TODO: add firefox test to featuredetection and get rid of deprecated $.browser
-    if (browser.mozilla === true && browser.version === "30.0") {
-        noWebGLMessage = new PopupMessage({
-            container : document.body,
-            title : 'FireFox version 30.0 detected',
-            message : '\
-There are known issues with this particular version of Firefox that make National Map 3D mode unstable. \
-These issues were fixed in Firefox 31, so we highly recommend that you update your version \
-of Firefox.  Until you upgrade, National Map will start in 2D mode. \
-You can switch display modes via the Map button on the left.'
-        });
-        this.webGlSupported = false;
-    }
     
     if (FeatureDetection.isInternetExplorer() && FeatureDetection.internetExplorerVersion()[0] < 9) {
         noWebGLMessage = new PopupMessage({
@@ -246,6 +220,20 @@ Your web browser does not appear to support WebGL, so you will see a limited, \
         });
         this.webGlSupported = false;
     }
+
+    if (document.body.clientWidth < 520 || document.body.clientHeight < 400) {
+        var smallScreenMessage = new PopupMessage({
+            container : document.body,
+            title : 'Small screen or window',
+            message : '\
+Hello!<br/>\
+<br/>\
+Currently the National Map isn\'t optimised for small screens.<br/>\
+<br/>\
+For a better experience we\'d suggest you visit the application from a larger screen like your tablet, laptop or desktop.  \
+If you\'re on a desktop or laptop, consider increasing the size of your window.'
+        });
+    }
     
     // IE versions prior to 10 don't support CORS, so always use the proxy.
     this._alwaysUseProxy = (FeatureDetection.isInternetExplorer() && FeatureDetection.internetExplorerVersion()[0] < 10);
@@ -256,13 +244,13 @@ Your web browser does not appear to support WebGL, so you will see a limited, \
     this.geoDataManager.GeoDataAdded.addEventListener(function(collection, layer) {
         console.log('Vis Layer Added:', layer.name);
         layer.zoomTo = collection.zoomTo;
-        setCurrentDataset(layer, that);
+        that.setCurrentDataset(layer);
         collection.zoomTo = false;
     });
 
     this.geoDataManager.GeoDataRemoved.addEventListener(function(collection, layer) {
         console.log('Vis Layer Removed:', layer.name);
-        setCurrentDataset(undefined, that);
+        that.setCurrentDataset(undefined);
     });
 
     this.geoDataManager.ViewerChanged.addEventListener(function(collection, obj) {
@@ -285,34 +273,37 @@ Your web browser does not appear to support WebGL, so you will see a limited, \
     this.map = undefined;
     
     var url = window.location;
-    
     var uri = new URI(url);
     var params = uri.search(true);
-
-    this.geoDataBrowser = new GeoDataBrowser({
-        viewer : this,
-        container : leftArea,
-        dataManager : geoDataManager,
-        initUrl: params.init_url,  //may need to add proxy
-        mode3d: this.webGlSupported
-    });
-
-    this.selectViewer(this.webGlSupported);
     
-    // simple way to capture most ux redraw needs - catch all canvas clicks
-    $(document).click(function() {
-        if (that.frameChecker !== undefined) {
-            that.frameChecker.forceFrameUpdate();
-        }
-    });
+    var configUrl = params.config || 'config.json';
 
     //get the server config to know how to handle urls and load initial one
-    loadJson('config.json').then( function(obj) {
-        var proxyDomains = obj.proxyDomains;
-        var corsDomains = obj.corsDomains;
+    loadJson(configUrl).then( function(config) {
+        var proxyDomains = config.proxyDomains;
+        var corsDomains = config.corsDomains;
         //workaround for non-CORS browsers (i.e. IE9)
-        corsProxy.setProxyList(obj.proxyDomains, obj.corsDomains, that._alwaysUseProxy);
+        corsProxy.setProxyList(config.proxyDomains, config.corsDomains, that._alwaysUseProxy);
         
+        that.initialCamera = config.initialCamera;
+        
+        that.geoDataBrowser = new GeoDataBrowser({
+            viewer : that,
+            container : leftArea,
+            dataManager : geoDataManager,
+            initUrl: params.data_menu || config.initialDataMenu || 'init_nm.json',
+            mode3d: that.webGlSupported
+        });
+        
+        that.selectViewer(that.webGlSupported);
+        
+        // simple way to capture most ux redraw needs - catch all canvas clicks
+        $(document).click(function() {
+            if (that.frameChecker !== undefined) {
+                that.frameChecker.forceFrameUpdate();
+            }
+        });
+
         that.geoDataManager.loadInitialUrl(url);
     });
 
@@ -616,85 +607,13 @@ AusGlobeViewer.prototype._createCesiumViewer = function(container) {
             var maxDiff = Math.max(approximateHeight - minHeight, maxHeight - approximateHeight);
             errorBar = Math.min(errorBar, maxDiff);
 
-            document.getElementById('ausglobe-title-middle').innerHTML = cartographicToDegreeString(intersection, errorBar);
+            document.getElementById('ausglobe-title-position').innerHTML = cartographicToDegreeString(intersection, errorBar);
 
             debounceSampleAccurateHeight(globe, intersection);
         } else {
-            document.getElementById('ausglobe-title-middle').innerHTML = '';
+            document.getElementById('ausglobe-title-position').innerHTML = '';
         }
     }, ScreenSpaceEventType.MOUSE_MOVE);
-
-    // Attempt to pick WMS layers on left click.
-    var extentScratch = new Rectangle();
-    var oldClickAction = inputHandler.getInputAction(ScreenSpaceEventType.LEFT_CLICK);
-    inputHandler.setInputAction(
-        function(movement) {
-            if (defined(oldClickAction)) {
-                oldClickAction(movement);
-            }
-
-            // If something is already selected, don't try to pick WMS features.
-            if (defined(that.viewer.selectedEntity)) {
-                return;
-            }
-
-            // Find the picked location on the globe.
-            var pickRay = scene.camera.getPickRay(movement.position);
-            var pickedPosition = scene.globe.pick(pickRay, scene);
-            var pickedLocation = Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
-
-            // Find the terrain tile containing the picked location.
-            var surface = that.viewer.scene.globe._surface;
-            var pickedTile;
-
-            for (var textureIndex = 0; !defined(pickedTile) && textureIndex < surface._tilesToRender.length; ++textureIndex) {
-                var tile = surface._tilesToRender[textureIndex];
-                if (Rectangle.contains(tile.rectangle, pickedLocation)) {
-                    pickedTile = tile;
-                }
-            }
-
-            if (!defined(pickedTile)) {
-                return;
-            }
-
-            // GetFeatureInfo for all attached imagery tiles containing the pickedLocation.
-            var tileExtent = pickedTile.rectangle;
-            var imageryTiles = pickedTile.data.imagery;
-            var extent = extentScratch;
-
-            var promises = [];
-            for (var i = imageryTiles.length-1; i >= 0; --i) {
-                var terrainImagery = imageryTiles[i];
-                var imagery = terrainImagery.readyImagery;
-                if (!defined(imagery)) {
-                    continue;
-                }
-                var provider = imagery.imageryLayer.imageryProvider;
-                if (!(provider instanceof WebMapServiceImageryProvider)) {
-                    continue;
-                }
-
-                extent.west = CesiumMath.lerp(tileExtent.west, tileExtent.east, terrainImagery.textureCoordinateRectangle.x);
-                extent.south = CesiumMath.lerp(tileExtent.south, tileExtent.north, terrainImagery.textureCoordinateRectangle.y);
-                extent.east = CesiumMath.lerp(tileExtent.west, tileExtent.east, terrainImagery.textureCoordinateRectangle.z);
-                extent.north = CesiumMath.lerp(tileExtent.south, tileExtent.north, terrainImagery.textureCoordinateRectangle.w);
-
-                if (Rectangle.contains(extent, pickedLocation)) {
-                    var pixelX = 255.0 * (pickedLocation.longitude - extent.west) / (extent.east - extent.west) | 0;
-                    var pixelY = 255.0 * (extent.north - pickedLocation.latitude) / (extent.north - extent.south) | 0;
-                    var useProxy = corsProxy.shouldUseProxy(provider.url);
-                    promises.push(getWmsFeatureInfo(provider.url, useProxy, provider.layers, extent, 256, 256, pixelX, pixelY, false));
-                }
-            }
-
-            if (promises.length === 0) {
-                return;
-            }
-
-            selectFeatures(promises, viewer);
-        },
-        ScreenSpaceEventType.LEFT_CLICK);
 
     return viewer;
 };
@@ -757,7 +676,7 @@ function sampleAccurateHeight(terrainProvider, position) {
             tileRequestInFlight = undefined;
             if (Cartographic.equals(position, lastHeightSamplePosition)) {
                 position.height = terrainData.interpolateHeight(tilingScheme.tileXYToRectangle(foundTileID.x, foundTileID.y, foundLevel), position.longitude, position.latitude);
-                document.getElementById('ausglobe-title-middle').innerHTML = cartographicToDegreeString(position);
+                document.getElementById('ausglobe-title-position').innerHTML = cartographicToDegreeString(position);
             } else {
                 // Mouse moved since we started this request, so the result isn't useful.  Try again next time.
             }
@@ -833,7 +752,7 @@ AusGlobeViewer.prototype.selectViewer = function(bCesium) {
 
         //document.getElementById('controls').style.visibility = 'hidden';
         this._navigationWidget.showTilt = false;
-        document.getElementById('ausglobe-title-middle').style.visibility = 'hidden';
+        document.getElementById('ausglobe-title-position').style.visibility = 'hidden';
 
         //redisplay data
         this.map = map;
@@ -904,6 +823,8 @@ AusGlobeViewer.prototype.selectViewer = function(bCesium) {
             }
             that.scene.base_render(date);
 
+            that.updateDistanceLegend();
+
             // If terrain/imagery is loading, force another render immediately so that the loading
             // happens as quickly as possible.
             var surface = that.scene.globe._surface;
@@ -932,7 +853,8 @@ AusGlobeViewer.prototype.selectViewer = function(bCesium) {
             this.map = undefined;
         }
         else {
-            rect = new Rectangle( 2.0, -0.8, 2.6, -0.1);
+            var cam = this.initialCamera;
+            rect = new Rectangle.fromDegrees(cam.west, cam.south, cam.east, cam.north);
          }
 
         this.updateCameraFromRect(rect, 0);
@@ -944,8 +866,76 @@ AusGlobeViewer.prototype.selectViewer = function(bCesium) {
         stopTimeline(this.viewer);
 
         this._navigationWidget.showTilt = true;
-        document.getElementById('ausglobe-title-middle').style.visibility = 'visible';
+        document.getElementById('ausglobe-title-position').style.visibility = 'visible';
 
+    }
+};
+
+var offsetScratch = new Cartesian3();
+var geodesic = new EllipsoidGeodesic();
+
+var distances = [
+    1, 2, 3, 5,
+    10, 20, 30, 50,
+    100, 200, 300, 500,
+    1000, 2000, 3000, 5000,
+    10000, 20000, 30000, 50000,
+    100000, 200000, 300000, 500000,
+    1000000, 2000000, 3000000, 5000000,
+    10000000, 20000000, 30000000, 50000000];
+
+AusGlobeViewer.prototype.updateDistanceLegend = function() {
+    // Find the distance between two pixels at the bottom center of the screen.
+    var scene = this.scene;
+    var width = scene.canvas.clientWidth;
+    var height = scene.canvas.clientHeight;
+
+    var left = scene.camera.getPickRay(new Cartesian2((width / 2) | 0, height - 1));
+    var right = scene.camera.getPickRay(new Cartesian2(1 + (width / 2) | 0, height - 1));
+
+    var globe = scene.globe;
+    var leftPosition = globe.pick(left, scene);
+    var rightPosition = globe.pick(right, scene);
+
+    if (!defined(leftPosition) || !defined(rightPosition)) {
+        document.getElementById('ausglobe-title-scale').style.visibility = 'hidden';
+        return;
+    }
+
+    var leftCartographic = globe.ellipsoid.cartesianToCartographic(leftPosition);
+    var rightCartographic = globe.ellipsoid.cartesianToCartographic(rightPosition);
+
+    geodesic.setEndPoints(leftCartographic, rightCartographic);
+    var pixelDistance = geodesic.surfaceDistance;
+
+    // Find the first distance that makes the scale bar less than 150 pixels.
+    var maxBarWidth = 150;
+    var distance;
+    for (var i = distances.length - 1; !defined(distance) && i >= 0; --i) {
+        if (distances[i] / pixelDistance < maxBarWidth) {
+            distance = distances[i];
+        }
+    }
+
+    if (defined(distance)) {
+        var label;
+        if (distance >= 1000) {
+            label = (distance / 1000).toString() + ' km';
+        } else {
+            label = distance.toString() + ' m';
+        }
+
+        var barWidth = (distance / pixelDistance) | 0;
+        if (barWidth !== this._distanceLegendBarWidth || label !== this._distanceLegendLabel) {
+            document.getElementById('ausglobe-title-scale').style.visibility = 'visible';
+            document.getElementById('ausglobe-title-scale-label').textContent = label;
+            document.getElementById('ausglobe-title-scale-bar').style.width = barWidth.toString() + 'px';
+
+            this._distanceLegendBarWidth = barWidth;
+            this._distanceLegendLabel = label;
+        }
+    } else {
+        document.getElementById('ausglobe-title-scale').style.visibility = 'hidden';
     }
 };
 
@@ -1028,29 +1018,28 @@ function updateTimeline(viewer, start, finish) {
 }
 
 //update menu and camera
-function setCurrentDataset(layer, that) {
+AusGlobeViewer.prototype.setCurrentDataset = function(layer) {
     //remove case
     if (layer === undefined) {
-        updateTimeline(that.viewer);
-        updateLegend();
+        updateTimeline(this.viewer);
         return;
     }
+    
     //table info
     var tableData, start, finish;
     if (layer.dataSource !== undefined && layer.dataSource.dataset !== undefined) {
         tableData = layer.dataSource;
-        if (that._cesiumViewerActive()) {
+        if (this._cesiumViewerActive()) {
             start = tableData.dataset.getMinTime();
             finish = tableData.dataset.getMaxTime();
         }
     }
-    updateTimeline(that.viewer, start, finish);
-    updateLegend(tableData);
+    updateTimeline(this.viewer, start, finish);
     
     if (layer.zoomTo && layer.extent !== undefined) {
-        that.updateCameraFromRect(layer.extent, 3000);
+        this.updateCameraFromRect(layer.extent, 3000);
     }
-}
+};
 
 // -------------------------------------------
 // Text Formatting
@@ -1122,7 +1111,7 @@ function getCameraRect(scene, map) {
         var lon = CesiumMath.toDegrees(focus_cart.longitude);
 
         var dist = Cartesian3.magnitude(Cartesian3.subtract(focus, scene.camera.position, cartesian3Scratch));
-        var offset = dist * 5e-6;
+        var offset = dist * 2.5e-6;
 
         return Rectangle.fromDegrees(lon-offset, lat-offset, lon+offset, lat+offset);
     }
@@ -1245,30 +1234,6 @@ AusGlobeViewer.prototype.updateCameraFromRect = function(rect_in, flightTimeMill
     }
 };
 
-// -------------------------------------------
-// Update the data legend
-// -------------------------------------------
-function updateLegend(datavis) {
-    if (datavis === undefined) {
-        document.getElementById('legend').style.visibility = 'hidden';
-        return;
-    }
-
-    document.getElementById('legend').style.visibility = 'visible';
-    var legend_canvas = $('#legendCanvas')[0];
-    var ctx = legend_canvas.getContext('2d');
-    ctx.translate(ctx.canvas.width, ctx.canvas.height);
-    ctx.rotate(180 * Math.PI / 180);
-    datavis.createGradient(ctx);
-    ctx.restore();
-
-    var val;
-    var min_text = (val = datavis.dataset.getMinVal()) === undefined ? 'undefined' : val.toString();
-    var max_text = (val = datavis.dataset.getMaxVal()) === undefined ? 'undefined' : val.toString();
-    document.getElementById('lgd_min_val').innerHTML = min_text;
-    document.getElementById('lgd_max_val').innerHTML = max_text;
-}
-
 function getWmsFeatureInfo(baseUrl, useProxy, layers, extent, width, height, i, j, useWebMercator) {
     var url = baseUrl;
     var indexOfQuestionMark = url.indexOf('?');
@@ -1341,6 +1306,8 @@ function selectFeatureLeaflet(viewer, latlng) {
     selectFeatures(promises, viewer.map);
 }
 
+//TODO:!!! need to get csv info and return it to the the feature prop viewer
+//         need layer and can go from there.
 function selectFeatures(promises, viewer) {
     var nextPromiseIndex = 0;
 

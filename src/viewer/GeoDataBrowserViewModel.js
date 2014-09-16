@@ -31,22 +31,25 @@ var GeoDataBrowserViewModel = function(options) {
     this._viewer = options.viewer;
     this._dataManager = options.dataManager;
     this.map = options.map;
-    this.initUrl = options.initUrl || './init_nm.json';
+    this.initUrl = options.initUrl;
     this.mode3d = options.mode3d;
 
     this.showingPanel = false;
     this.showingMapPanel = false;
+    this.showingLegendPanel = false;
+    this.showingLegendButton = false;
     this.addDataIsOpen = false;
     this.nowViewingIsOpen = true;
     this.wfsServiceUrl = '';
     this.addType = 'Single data file';
+    this.topLayerLegendUrl = '';
 
     this.openMapIndex = 0;
     this.imageryIsOpen = true;
     this.viewerSelectionIsOpen = false;
     this.selectedViewer = this.mode3d ? 'Terrain' : '2D';
 
-    knockout.track(this, ['showingPanel', 'showingMapPanel', 'addDataIsOpen', 'nowViewingIsOpen', 'addType', 'wfsServiceUrl',
+    knockout.track(this, ['showingPanel', 'showingMapPanel', 'showingLegendPanel', 'showingLegendButton', 'addDataIsOpen', 'nowViewingIsOpen', 'addType', 'topLayerLegendUrl', 'wfsServiceUrl',
                           'imageryIsOpen', 'viewerSelectionIsOpen', 'selectedViewer']);
 
     var that = this;
@@ -56,6 +59,7 @@ var GeoDataBrowserViewModel = function(options) {
         that.showingPanel = !that.showingPanel;
         if (that.showingPanel) {
             that.showingMapPanel = false;
+            that.showingLegendPanel = false;
         }
     });
 
@@ -63,6 +67,28 @@ var GeoDataBrowserViewModel = function(options) {
         that.showingMapPanel = !that.showingMapPanel;
         if (that.showingMapPanel) {
             that.showingPanel = false;
+            that.showingLegendPanel = false;
+        }
+    });
+
+    this._toggleShowingLegendPanel = createCommand(function() {
+        that.showingLegendPanel = !that.showingLegendPanel;
+        if (that.showingLegendPanel) {
+            that.showingPanel = false;
+            that.showingMapPanel = false;
+
+            // Make sure a legend is visible.
+            var nowViewing = that.nowViewing();
+            var oneIsOpen = false;
+            for (var i = 0; !oneIsOpen && i < nowViewing.length; ++i) {
+                if (nowViewing[i].legendIsOpen()) {
+                    oneIsOpen = true;
+                }
+            }
+
+            if (!oneIsOpen && nowViewing.length > 0) {
+                nowViewing[i].legendIsOpen(true);
+            }
         }
     });
 
@@ -86,6 +112,20 @@ var GeoDataBrowserViewModel = function(options) {
     this._openViewerSelection = createCommand(function() {
         that.imageryIsOpen = false;
         that.viewerSelectionIsOpen = true;
+    });
+
+    this._openLegend = createCommand(function(item) {
+        item.legendIsOpen(!item.legendIsOpen());
+
+        if (item.legendIsOpen()) {
+            // Close the other legends.
+            var nowViewing = that.nowViewing();
+            for (var i = 0; i < nowViewing.length; ++i) {
+                if (nowViewing[i] !== item) {
+                    nowViewing[i].legendIsOpen(false);
+                }
+            }
+        }
     });
 
     this._toggleCategoryOpen = createCommand(function(item) {
@@ -134,7 +174,9 @@ var GeoDataBrowserViewModel = function(options) {
         }
 
         ga('send', 'event', 'dataSource', 'zoomTo', item.Title());
-        that._viewer.updateCameraFromRect(item.layer.extent, 3000);
+        item.layer.zoomTo = true;
+        that._viewer.setCurrentDataset(item.layer);
+        item.layer.zoomTo = false;
     });
 
     this._showInfoForItem = createCommand(function(item) {
@@ -276,7 +318,7 @@ these extensions in order for National Map to know how to load it.'
         removeBaseLayer();
 
         if (!defined(that._viewer.viewer)) {
-            that._viewer.mapBaseLayer = new L.esri.TiledMapLayer('http://www.ga.gov.au/gis/rest/services/topography/Australian_Topography_2014_WM/MapServer');
+            that._viewer.mapBaseLayer = new L.esri.tiledMapLayer('http://www.ga.gov.au/gis/rest/services/topography/Australian_Topography_2014_WM/MapServer');
             that._viewer.map.addLayer(that._viewer.mapBaseLayer);
             return;
         }
@@ -304,7 +346,7 @@ these extensions in order for National Map to know how to load it.'
         removeBaseLayer();
 
         if (!defined(that._viewer.viewer)) {
-            that._viewer.mapBaseLayer = new L.esri.TiledMapLayer('http://www.ga.gov.au/gis/rest/services/topography/AusHydro_WM/MapServer');
+            that._viewer.mapBaseLayer = new L.esri.tiledMapLayer('http://www.ga.gov.au/gis/rest/services/topography/AusHydro_WM/MapServer');
             that._viewer.map.addLayer(that._viewer.mapBaseLayer);
             return;
         }
@@ -336,6 +378,25 @@ these extensions in order for National Map to know how to load it.'
                 when(readJson(file), loadCollection);
             }
         }
+    });
+
+    function disableAll(items) {
+        for (var i = 0; i < items.length; ++i) {
+            var item = items[i];
+            if (defined(item.isEnabled)) {
+                item.isEnabled(false);
+            }
+
+            if (defined(item.Layer)) {
+                disableAll(item.Layer());
+            }
+        }
+    }
+
+    this._clearAll = createCommand(function() {
+        disableAll(that.content());
+        that._viewer.geoDataManager.removeAll();
+        return false;
     });
 
     // Subscribe to a change in the selected viewer (2D/3D) in order to actually switch the viewer.
@@ -464,15 +525,23 @@ these extensions in order for National Map to know how to load it.'
 
     this.userContent = komapping.fromJS([], this._collectionListMapping);
 
+    var firstNowViewingItem = true;
+
     var nowViewingMapping = {
         create : function(options) {
             var description = options.data.description;
             if (!defined(description)) {
                 var base_url = options.data.url;
                 if (defined(base_url)) {
-                var idx = base_url.indexOf('?');
-                    if (idx !== -1) {
-                        base_url = base_url.substring(0,idx);
+                        //good enough for now.  can be addressed in infobox redo
+                    if (defined(options.data.type) && options.data.type === 'DATA') {
+                        base_url = '';
+                    }
+                    else {
+                        var idx = base_url.indexOf('?');
+                        if (idx !== -1) {
+                            base_url = base_url.substring(0,idx);
+                        }
                     }
                 }
                 description = {
@@ -485,7 +554,11 @@ these extensions in order for National Map to know how to load it.'
             }
             var viewModel = komapping.fromJS(description);
             viewModel.show = knockout.observable(options.data.show);
+            viewModel.legendIsOpen = knockout.observable(firstNowViewingItem);
             viewModel.layer = options.data;
+
+            firstNowViewingItem = false;
+
             return viewModel;
         }
     };
@@ -501,14 +574,100 @@ these extensions in order for National Map to know how to load it.'
     function refreshNowViewing() {
         // Get the current scroll height and position
         var panel = document.getElementById('ausglobe-data-panel');
-        var previousScrollHeight = panel.scrollHeight ;
+        var previousScrollHeight = panel.scrollHeight;
 
+        firstNowViewingItem = true;
         komapping.fromJS(getLayers(), nowViewingMapping, that.nowViewing);
 
         // Attempt to maintain the previous scroll position.
         var newScrollHeight = panel.scrollHeight;
         panel.scrollTop += newScrollHeight - previousScrollHeight;
+
+        that.showingLegendButton = false;
+
+        var nowViewing = that.nowViewing();
+        if (nowViewing.length > 0) {
+            var topLayer = nowViewing[0];
+
+            if (defined(topLayer.legendUrl) && defined(topLayer.legendUrl())) {
+                if (topLayer.legendUrl().length > 0) {
+                    that.topLayerLegendUrl = topLayer.legendUrl();
+                    that.showingLegendButton = true;
+                }
+            } else if (topLayer.type() === 'WMS') {
+                that.topLayerLegendUrl = topLayer.base_url() + '?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&layer=' + topLayer.Name();
+                that.showingLegendButton = true;
+            }
+        }
     }
+
+    this.getLegendUrl = function(item) {
+        if (defined(item.legendUrl) && defined(item.legendUrl())) {
+            if (item.legendUrl().length > 0) {
+                return item.legendUrl();
+            }
+        } else if (item.type() === 'WMS') {
+            return item.base_url() + '?service=WMS&version=1.3.0&request=GetLegendGraphic&format=image/png&layer=' + item.Name();
+        }
+
+        return '';
+    };
+
+    var imageUrlRegex = /[.\/](png|jpg|jpeg|gif)/i;
+
+    this.legendIsImage = function(item) {
+        var url = this.getLegendUrl(item);
+        if (url.length === 0) {
+            return false;
+        }
+
+        return url.match(imageUrlRegex);
+    };
+
+    this.legendIsLink = function(item) {
+        return !this.legendIsImage(item) && this.getLegendUrl(item).length > 0;
+    };
+
+    this.legendsExist = function() {
+        var nowViewing = that.nowViewing();
+
+        for (var i = 0; i < nowViewing.length; ++i) {
+            if (nowViewing[i].show) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    this.supportsOpacity = function(item) {
+        var primitive = item.layer ? item.layer.primitive : undefined;
+        return primitive && (defined(primitive.alpha) || defined(primitive.setOpacity));
+    };
+
+    this.opacity = function(item) {
+        if (!defined(item._opacity)) {
+            item._opacity = knockout.observable(100);
+
+            var primitive = item.layer ? item.layer.primitive : undefined;
+
+            if (defined(primitive.alpha)) {
+                item._opacity(primitive.alpha * 100.0);
+            } else if (defined(primitive.options) && defined(primitive.options.opacity)) {
+                item._opacity(primitive.options.opacity * 100.0);
+            }
+
+            item._opacity.subscribe(function() {
+                if (defined(primitive.alpha)) {
+                    primitive.alpha = item._opacity() / 100.0;
+                } else if (defined(primitive.setOpacity)) {
+                    primitive.setOpacity(item._opacity() / 100.0);
+                }
+            });
+        }
+
+        return item._opacity;
+    };
 
     this._removeGeoDataAddedListener = this._dataManager.GeoDataAdded.addEventListener(refreshNowViewing);
     this._removeGeoDataRemovedListener = this._dataManager.GeoDataRemoved.addEventListener(refreshNowViewing);
@@ -542,9 +701,41 @@ these extensions in order for National Map to know how to load it.'
             if (defined(existingCollection)) {
                 komapping.fromJS(collection, that._collectionListMapping, existingCollection);
             } else {
-                browserContentViewModel.push(komapping.fromJS(collection, that._collectionListMapping));
+                existingCollection = komapping.fromJS(collection, that._collectionListMapping);
+                browserContentViewModel.push(existingCollection);
+            }
+
+            if (collection.type === 'CKAN') {
+                loadCkanCollection(collection, existingCollection);
             }
         }
+    }
+
+    function loadCkanCollection(collection, existingCollection) {
+        // Get the list of groups containing WMS data sources.
+        var url = collection.base_url + '/api/3/action/package_search?rows=100000&fq=res_format:wms';
+
+        when(loadJson(url), function(result) {
+            var existingGroups = {};
+
+            var items = result.result.results;
+            for (var itemIndex = 0; itemIndex < items.length; ++itemIndex) {
+                var groups = items[itemIndex].groups;
+                for (var groupIndex = 0; groupIndex < groups.length; ++groupIndex) {
+                    var group = groups[groupIndex];
+                    if (!existingGroups[group.name]) {
+                        existingCollection.Layer.push(createCategory({
+                            data : {
+                                name: group.display_name,
+                                base_url: collection.base_url + '/api/3/action/package_search?rows=1000&fq=groups:' + group.name + '+res_format:wms',
+                                type: 'CKAN'
+                            }
+                        }));
+                        existingGroups[group.name] = true;
+                    }
+                }
+            }
+        });
     }
 
     function noopHandler(evt) {
@@ -613,8 +804,7 @@ these extensions in order for National Map to know how to load it.'
             dragPlaceholder = undefined;
         }
 
-        that.nowViewing.removeAll();
-        komapping.fromJS(getLayers(), nowViewingMapping, that.nowViewing);
+        refreshNowViewing();
 
         if (defined(that._viewer.frameChecker)) {
             that._viewer.frameChecker.forceFrameUpdate();
@@ -678,6 +868,12 @@ defineProperties(GeoDataBrowserViewModel.prototype, {
         }
     },
 
+    toggleShowingLegendPanel : {
+        get : function() {
+            return this._toggleShowingLegendPanel;
+        }
+    },
+
     openItem : {
         get : function() {
             return this._openItem;
@@ -705,6 +901,12 @@ defineProperties(GeoDataBrowserViewModel.prototype, {
     openViewerSelection : {
         get : function() {
             return this._openViewerSelection;
+        }
+    },
+
+    openLegend : {
+        get : function() {
+            return this._openLegend;
         }
     },
 
@@ -814,6 +1016,12 @@ defineProperties(GeoDataBrowserViewModel.prototype, {
         get : function() {
             return this._endNowViewingDrag;
         }
+    },
+
+    clearAll : {
+        get : function() {
+            return this._clearAll;
+        }
     }
 });
 
@@ -834,6 +1042,7 @@ function enableItem(viewModel, item) {
     }
 
     layer.description = description;
+    layer.style = description.style;
 
     item.layer = layer;
 
