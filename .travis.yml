@@ -1,12 +1,14 @@
+node_js: 
+- "0.10"
+env: 
+  global: 
+  - AWS_DEFAULT_REGION=ap-southeast-2
+  - secure: Lhf1I6+N3SVaf8fRhmgKoCyoPjcTP4IJtmud1dJiXT3aJwRBMCaI3jvhXndZc+e48LRxuTu6HHstuocJL7HHT7UpxnQW6F3t6Bs9BSDXy5SsXCdbPsrtDRzKjpLFdjuw2e/pxFBByRz8qNO6BvysKmPzPI3eiO4hFl55oOnh6S4=
+  - secure: VN7BgZqIEbf5MPQ6jx/iH811cZJIVsW8gg+gyRuPQ3IYsQtxQNaOluXWzijWnJa8LAL3kUKqWXO+kylyHtAt1+1Jn33hLyQt5DwhKq0pKsd8q/bnH0k30DVDwBolyxEg9fQ1J1xIV43752ZgchoU8nKlm6nD4yJJeFrN/ft5mV4=
 language: node_js
-node_js:
-  - "0.10"
-after_success:
+after_success: 
   - sudo pip install awscli
   - zip -r nationalmap.zip Dockerfile server.js public
   - aws s3 cp nationalmap.zip s3://nationalmap-beanstalk/nationalmap-`git rev-parse --short HEAD`.zip
   - aws elasticbeanstalk create-application-version --application-name "National Map" --version-label `git rev-parse --short HEAD` --source-bundle S3Bucket="nationalmap-beanstalk",S3Key="nationalmap-`git rev-parse --short HEAD`.zip"
   - aws elasticbeanstalk update-environment --environment-name "nationalMap-env" --version-label `git rev-parse --short HEAD`
-env:
- global:
- - secure: "Yf2A+ixNB+uRCShFU+Q2vKLFdPPy+VEArw6BfKGO4waBIo0+XZDFUdCo5opTO4ulLtJezTvQyd0Tq451X0xdaez+eddtatd3zGyzvGVnR6wOnjch5DWde7oUiHC3G/7QwU3lMBkzwO7OXZ1a7ghZyrH3fBC0eSwh/5qwvmWDqTU="
