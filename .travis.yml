@@ -2,7 +2,7 @@ language: node_js
 node_js:
   - "0.10"
 after_success:
-  - pip install awscli
+  - sudo pip install awscli
   - zip -r nationalmap.zip Dockerfile server.js public
   - aws s3 cp nationalmap.zip s3://nationalmap-beanstalk/nationalmap-`git rev-parse --short HEAD`.zip
   - aws elasticbeanstalk create-application-version --application-name "National Map" --version-label `git rev-parse --short HEAD` --source-bundle S3Bucket="nationalmap-beanstalk",S3Key="nationalmap-`git rev-parse --short HEAD`.zip"
