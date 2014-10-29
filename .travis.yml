@@ -3,6 +3,10 @@ node_js:
   - "0.10"
 after_success:
   - pip install awscli
+  - zip -r nationalmap.zip Dockerfile server.js public
+  - aws s3 cp nationalmap.zip s3://nationalmap-beanstalk/nationalmap-`git rev-parse --short HEAD`.zip
+  - aws elasticbeanstalk create-application-version --application-name "National Map" --version-label `git rev-parse --short HEAD` --source-bundle S3Bucket="nationalmap-beanstalk",S3Key="nationalmap-`git rev-parse --short HEAD`.zip"
+  - aws elasticbeanstalk update-environment --environment-name "nationalMap-env" --version-label `git rev-parse --short HEAD`
 env:
  global:
  - secure: "Yf2A+ixNB+uRCShFU+Q2vKLFdPPy+VEArw6BfKGO4waBIo0+XZDFUdCo5opTO4ulLtJezTvQyd0Tq451X0xdaez+eddtatd3zGyzvGVnR6wOnjch5DWde7oUiHC3G/7QwU3lMBkzwO7OXZ1a7ghZyrH3fBC0eSwh/5qwvmWDqTU="
