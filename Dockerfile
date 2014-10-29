@@ -8,7 +8,7 @@ RUN apt-get -y update
 RUN apt-get -y install nodejs
 
 ADD package.json package.json
-RUN npm install
+RUN npm cache clean -f; npm install -g npm; npm install
 
 ADD public public
 ADD server.js server.js
