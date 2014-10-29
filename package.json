@@ -31,7 +31,8 @@
     "watchify": "git://github.com/cconger/watchify#35407c030db9c6c9099e7fc2a5c21ac5eb7db5f8"
   },
   "scripts": {
-    "start": "node_modules/.bin/supervisor server"
+    "start": "node_modules/.bin/supervisor server",
+    "test": "gulp"
   },
   "browser": {
     "knockout": "./third_party/cesium/Source/ThirdParty/knockout.js"
