@@ -1,3 +1,8 @@
 language: node_js
 node_js:
   - "0.10"
+after_success:
+  - pip install awscli
+env:
+ global:
+ - secure: "Yf2A+ixNB+uRCShFU+Q2vKLFdPPy+VEArw6BfKGO4waBIo0+XZDFUdCo5opTO4ulLtJezTvQyd0Tq451X0xdaez+eddtatd3zGyzvGVnR6wOnjch5DWde7oUiHC3G/7QwU3lMBkzwO7OXZ1a7ghZyrH3fBC0eSwh/5qwvmWDqTU="
