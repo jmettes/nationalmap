@@ -92,7 +92,7 @@ if (cluster.isMaster) {
 
     var yargs = require('yargs').options({
         'port' : {
-            'default' : 3001,
+            'default' : process.env.PORT || 3001,
             'description' : 'Port to listen on.'
         },
         'public' : {
