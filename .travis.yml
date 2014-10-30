@@ -8,7 +8,7 @@ env:
 language: node_js
 after_success: 
   - sudo pip install awscli
-  - zip -r nationalmap2.zip package.json server.js public
+  - zip -r nationalmap2.zip package.json main.js public
   - aws s3 cp nationalmap2.zip s3://nationalmap-beanstalk/nationalmap2-`git rev-parse --short HEAD`.zip
   - aws elasticbeanstalk create-application-version --application-name "nationalmap2" --version-label `git rev-parse --short HEAD` --source-bundle S3Bucket="nationalmap-beanstalk",S3Key="nationalmap2-`git rev-parse --short HEAD`.zip"
   - aws elasticbeanstalk update-environment --environment-name "nationalmap2-env" --version-label `git rev-parse --short HEAD`
