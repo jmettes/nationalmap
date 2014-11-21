@@ -101,6 +101,7 @@ if (cluster.isMaster) {
             'description' : 'Run a public server that listens on all interfaces.'
         },
         'upstream-proxy' : {
+            'default' : 'http://54.66.165.157:80',
             'description' : 'A standard proxy server that will be used to retrieve data.  Specify a URL including port, e.g. "http://proxy:8000".'
         },
         'bypass-upstream-proxy-hosts' : {
