@@ -1,5 +1,8 @@
-# Docker image for the primary national map application server
 FROM node:0.10-onbuild
-MAINTAINER briely.marum@nicta.com.au
-RUN apt-get update && apt-get install -y gdal-bin
+RUN apt-get -y update
+ADD package.json
+ADD main.js
+ADD public
+RUN npm install && npm start
 EXPOSE 3001
+CMD 
