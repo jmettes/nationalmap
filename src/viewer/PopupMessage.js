@@ -1,6 +1,6 @@
 "use strict";
 
-/*global require,$*/
+/*global require*/
 var defaultValue = require('../../third_party/cesium/Source/Core/defaultValue');
 var getElement = require('../../third_party/cesium/Source/Widgets/getElement');
 
@@ -8,8 +8,6 @@ var knockout = require('../../third_party/cesium/Source/ThirdParty/knockout');
 
 var PopupMessage = function(options) {
     var container = getElement(options.container);
-    var message = options.message;
-    var title = defaultValue(options.title, 'Information');
 
     var wrapper = document.createElement('div');
     wrapper.className = 'ausglobe-info-container';
@@ -19,11 +17,11 @@ var PopupMessage = function(options) {
     var popup = document.createElement('div');
     popup.className = 'ausglobe-message';
     popup.innerHTML = '\
-        <div class="ausglobe-info-header">\
-            <div class="ausglobe-info-close-button" data-bind="click: close">&times;</div>\
+        <div class="ausglobe-message-header">\
+            <div class="ausglobe-message-close-button" data-bind="click: close">&times;</div>\
             <h1 data-bind="text: title"></h1>\
         </div>\
-        <div class="ausglobe-info-content">\
+        <div class="ausglobe-message-content">\
             <div class="ausglobe-share-label" data-bind="html: message"></div>\
         </div>\
     ';
@@ -49,6 +47,10 @@ var PopupMessage = function(options) {
     viewModel.message = knockout.observable(options.message);
 
     knockout.applyBindings(viewModel, wrapper);
+};
+
+PopupMessage.open = function(options) {
+    return new PopupMessage(options);
 };
 
 module.exports = PopupMessage;

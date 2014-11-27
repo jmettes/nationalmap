@@ -1,4 +1,4 @@
-/*global require,$*/
+/*global require*/
 "use strict";
 
 var Dataset = require('./Dataset');
@@ -11,16 +11,13 @@ And writes a czml file for it to display
 
 //TODO: DOCUMENT using model in GeoJsonDataSource
 
-var defaultValue = require('../third_party/cesium/Source/Core/defaultValue');
-var defined = require('../third_party/cesium/Source/Core/defined');
-var CzmlDataSource = require('../third_party/cesium/Source/DataSources/CzmlDataSource');
-var Color = require('../third_party/cesium/Source/Core/Color');
-var defineProperties = require('../third_party/cesium/Source/Core/defineProperties');
-var destroyObject = require('../third_party/cesium/Source/Core/destroyObject');
-var JulianDate = require('../third_party/cesium/Source/Core/JulianDate');
-
-var EMPTY_OBJECT = {};
-
+var defined = require('../../third_party/cesium/Source/Core/defined');
+var CzmlDataSource = require('../../third_party/cesium/Source/DataSources/CzmlDataSource');
+var Color = require('../../third_party/cesium/Source/Core/Color');
+var defineProperties = require('../../third_party/cesium/Source/Core/defineProperties');
+var destroyObject = require('../../third_party/cesium/Source/Core/destroyObject');
+var JulianDate = require('../../third_party/cesium/Source/Core/JulianDate');
+var loadText = require('../../third_party/cesium/Source/Core/loadText');
 
 /**
 * @class TableDataSource is a cesium based datasource for table based geodata
@@ -39,7 +36,6 @@ var TableDataSource = function () {
 
     this.color = Color.RED;
 
-    this.pts_max = 10000;
     this.leadTimeMin = 0;
     this.trailTimeMin = 60;
     this.scale = 1.0;
@@ -143,11 +139,8 @@ defineProperties(TableDataSource.prototype, {
  */
 TableDataSource.prototype.loadUrl = function (url) {
     var that = this;
-    this.dataset.loadUrl({ url: url, callback: function (data) {
-        that.setLeadTimeByPercent(0.0);
-        that.setTrailTimeByPercent(1.0);
-        that.czmlDataSource.load(that.getDataPointList(), 'TableDataSource');
-        }
+    return loadText(url).then(function(text) {
+        return that.loadText(text);
     });
 };
 
@@ -171,8 +164,8 @@ TableDataSource.prototype.loadText = function (text) {
 * @memberof TableDataSource
 *
 */
-TableDataSource.prototype.setCurrentVariable = function (varname) {
-    this.dataset.setCurrentVariable({ variable: varname});
+TableDataSource.prototype.setCurrentVariable = function (varName) {
+    this.dataset.setCurrentVariable({ variable: varName});
     this.czmlDataSource.load(this.getDataPointList(), 'TableDataSource');
 };
 
@@ -238,9 +231,10 @@ TableDataSource.prototype.czmlRecFromPoint = function (point) {
         var start = JulianDate.addMinutes(point.time, -this.leadTimeMin, startScratch);
         var finish = JulianDate.addMinutes(point.time, this.trailTimeMin, endScratch);
         rec.billboard.show[1].interval = JulianDate.toIso8601(start) + '/' + JulianDate.toIso8601(finish);
+        rec.availability = rec.billboard.show[1].interval;
     }
     else {
-        rec.billboard.show[0]['boolean'] = true;
+        rec.billboard.show[0].boolean = true;
         rec.billboard.show[1].interval = undefined;
     }
     return rec;
@@ -256,7 +250,7 @@ TableDataSource.prototype.czmlRecFromPoint = function (point) {
 */
 TableDataSource.prototype.getDataPointList = function () {
     var data = this.dataset;
-    if (data._loadingData) {
+    if (data.loadingData) {
         return;
     }
     //update the datapoint collection
@@ -276,20 +270,22 @@ TableDataSource.prototype.getDataPointList = function () {
     return dispRecords;
 };
 
-TableDataSource.prototype._getNormalizedPoint = function (pt_val) {
+
+TableDataSource.prototype._getNormalizedPoint = function (pntVal) {
     var data = this.dataset;
-    if (data === undefined || data.isNoData(pt_val)) {
+    if (data === undefined || data.isNoData(pntVal)) {
         return undefined;
     }
-    var min_val = data.getMinVal();
-    var max_val = data.getMaxVal();
-    var normPoint = (max_val === min_val) ? 0 : (pt_val - min_val) / (max_val - min_val);
+    var minVal = data.getMinVal();
+    var maxVal = data.getMaxVal();
+    var normPoint = (maxVal === minVal) ? 0 : (pntVal - minVal) / (maxVal - minVal);
     return normPoint;
 };
 
-TableDataSource.prototype._mapValue2Scale = function (pt_val) {
+
+TableDataSource.prototype._mapValue2Scale = function (pntVal) {
     var scale = this.scale;
-    var normPoint = this._getNormalizedPoint(pt_val);
+    var normPoint = this._getNormalizedPoint(pntVal);
     if (defined(normPoint) && normPoint === normPoint) {
         scale *= (this.scaleValue ? 1.0 * normPoint + 0.5 : 1.0);
     }
@@ -297,16 +293,16 @@ TableDataSource.prototype._mapValue2Scale = function (pt_val) {
 };
 
 
-TableDataSource.prototype._mapValue2Color = function (pt_val) {
+TableDataSource.prototype._mapValue2Color = function (pntVal) {
     var colors = this.dataImage;
     if (colors === undefined) {
         return this.color;
     }
-    var normPoint = this._getNormalizedPoint(pt_val);
+    var normPoint = this._getNormalizedPoint(pntVal);
     var color = [0, 0, 0, 0];
     if (normPoint !== undefined) {
-        var clr_idx = Math.floor(normPoint * (colors.data.length / 4 - 1)) * 4;
-        color = colors.data.subarray(clr_idx, clr_idx+4);
+        var colorIndex = Math.floor(normPoint * (colors.data.length / 4 - 1)) * 4;
+        color = colors.data.subarray(colorIndex, colorIndex+4);
         color[3] *= this.color.alpha;
     }
     return color;
@@ -352,9 +348,9 @@ TableDataSource.prototype.getLegendGraphic = function () {
 
         // Create Linear Gradient
     var grad = this.colorGradient;
-    var lingrad = ctx.createLinearGradient(0,0,0,gradH);
+    var linGrad = ctx.createLinearGradient(0,0,0,gradH);
     for (var i = 0; i < grad.length; i++) {
-        lingrad.addColorStop(grad[i].offset, grad[i].color);
+        linGrad.addColorStop(grad[i].offset, grad[i].color);
     }
         //white background
     ctx.fillStyle = "#FFFFFF";
@@ -362,21 +358,21 @@ TableDataSource.prototype.getLegendGraphic = function () {
         //put 0 at bottom
     ctx.translate(gradW + 15, h-5);
     ctx.rotate(180 * Math.PI / 180);
-    ctx.fillStyle = lingrad;
+    ctx.fillStyle = linGrad;
     ctx.fillRect(0,0,gradW,gradH);
     
         //text
     var val;
-    var min_text = (val = this.dataset.getMinVal()) === undefined ? 'und.' : val.toString();
-    var max_text = (val = this.dataset.getMaxVal()) === undefined ? 'und.' : val.toString();
-    var var_text = this.dataset.getCurrentVariable();
+    var minText = (val = this.dataset.getMinVal()) === undefined ? 'und.' : val.toString();
+    var maxText = (val = this.dataset.getMaxVal()) === undefined ? 'und.' : val.toString();
+    var varText = this.dataset.getCurrentVariable();
     
     ctx.setTransform(1,0,0,1,0,0);
     ctx.font = "16px Arial Narrow";
     ctx.fillStyle = "#000000";
-    ctx.fillText(var_text, 5, 15);
-    ctx.fillText(max_text, gradW + 25, 15+h-gradH-5);
-    ctx.fillText(min_text, gradW + 25, h-5);
+    ctx.fillText(varText, 5, 15);
+    ctx.fillText(maxText, gradW + 25, 15+h-gradH-5);
+    ctx.fillText(minText, gradW + 25, h-5);
     
     return canvas.toDataURL("image/png");
 };
@@ -403,11 +399,11 @@ TableDataSource.prototype.setColorGradient = function (colorGradient) {
     
     // Create Linear Gradient
     var grad = this.colorGradient;
-    var lingrad = ctx.createLinearGradient(0,0,0,h);
+    var linGrad = ctx.createLinearGradient(0,0,0,h);
     for (var i = 0; i < grad.length; i++) {
-        lingrad.addColorStop(grad[i].offset, grad[i].color);
+        linGrad.addColorStop(grad[i].offset, grad[i].color);
     }
-    ctx.fillStyle = lingrad;
+    ctx.fillStyle = linGrad;
     ctx.fillRect(0,0,w,h);
 
     this.dataImage = ctx.getImageData(0, 0, 1, 256);
